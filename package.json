@@ -9,7 +9,8 @@
     "backfill:test": "node backfill-test.mjs",
     "import:test": "node import-backfill-test.mjs",
     "backfill": "node backfill-recent.mjs",
-    "index": "node live-indexer.mjs"
+    "index": "node live-indexer.mjs",
+    "serve": "node server.mjs"
   },
   "keywords": [],
   "author": "",
