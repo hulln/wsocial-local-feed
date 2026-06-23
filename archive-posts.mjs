@@ -25,29 +25,82 @@ const W_PDS = process.env.W_PDS ?? "https://pds.wsocial.network";
 const COLLECTION = "app.bsky.feed.post";
 const USER_AGENT = "atproto-archive/1.0";
 
+// PDSes rate-limit per IP (eurosky.social: 3000 requests / 300s = ~10/s). We
+// pace ALL request starts through one global throttle so the whole process stays
+// under the budget no matter how high CONCURRENCY is. Default ~8.7 req/s leaves
+// headroom for the occasional retry. Raising concurrency no longer raises the
+// request rate; it only overlaps network latency.
+const MIN_REQUEST_INTERVAL_MS = Number(process.env.MIN_REQUEST_INTERVAL_MS ?? 115);
+const MAX_RETRIES = Number(process.env.MAX_RETRIES ?? 6);
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// fetch() with a timeout; throws an Error carrying the HTTP status + a body
-// snippet so failures can be diagnosed instead of guessed.
-async function fetchJson(url, { timeoutMs = 15000 } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { "user-agent": USER_AGENT },
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      const error = new Error(`${response.status} ${response.statusText}: ${body.slice(0, 300)}`);
-      error.status = response.status;
+let nextSlot = 0;
+async function throttle() {
+  const now = Date.now();
+  const wait = Math.max(0, nextSlot - now);
+  nextSlot = Math.max(now, nextSlot) + MIN_REQUEST_INTERVAL_MS;
+  if (wait > 0) await sleep(wait);
+}
+
+// How long to wait when rate-limited: honor Retry-After, else wait for the
+// ratelimit-reset window, else exponential backoff.
+function rateLimitWaitMs(response, attempt) {
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000 + 250;
+  const reset = Number(response.headers.get("ratelimit-reset")); // unix seconds
+  if (Number.isFinite(reset) && reset > 0) {
+    const ms = reset * 1000 - Date.now();
+    if (ms > 0 && ms < 360000) return ms + 500;
+  }
+  return Math.min(60000, 1000 * 2 ** attempt);
+}
+
+// Globally-throttled fetch with timeout. Retries 429/503 (honoring the
+// rate-limit window) and transient network/timeout errors with backoff, so a
+// throttled or flaky PDS slows us down instead of failing every repo.
+async function fetchJson(url, { timeoutMs = 15000, retries = MAX_RETRIES } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    await throttle();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { "user-agent": USER_AGENT },
+      });
+
+      if (response.status === 429 || response.status === 503) {
+        await response.text().catch(() => {}); // drain body before retrying
+        if (attempt >= retries) {
+          const error = new Error(`${response.status} rate-limited (gave up after ${retries} retries)`);
+          error.status = response.status;
+          throw error;
+        }
+        await sleep(rateLimitWaitMs(response, attempt));
+        continue;
+      }
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        const error = new Error(`${response.status} ${response.statusText}: ${body.slice(0, 300)}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return await response.json();
+    } catch (error) {
+      // No HTTP status => network error or timeout (AbortError): retry with backoff.
+      if (error.status === undefined && attempt < retries) {
+        await sleep(Math.min(20000, 500 * 2 ** attempt));
+        continue;
+      }
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -68,7 +121,7 @@ const NETWORK = process.env.NETWORK ?? "wsocial";
 const OUT_DIR = process.env.OUT_DIR ?? "data/archive";
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 5);
 const RECORDS_PER_PAGE = Number(process.env.RECORDS_PER_PAGE ?? 100);
-const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS ?? 25);
+const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS ?? 0); // pacing handled by global throttle
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 15000);
 const MAX_POSTS_PER_DID = Number(process.env.MAX_POSTS_PER_DID ?? 0); // 0 = unlimited
 const MAX_PAGES_PER_DID = Number(process.env.MAX_PAGES_PER_DID ?? 0); // 0 = unlimited
