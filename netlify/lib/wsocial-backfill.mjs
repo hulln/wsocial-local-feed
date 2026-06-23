@@ -19,10 +19,12 @@ const MAX_RECORD_PAGES_PER_DID = Number(process.env.MAX_RECORD_PAGES_PER_DID ?? 
 const MAX_POSTS_PER_DID = Number(process.env.MAX_POSTS_PER_DID ?? 1000);
 const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS ?? 25);
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS ?? 10000);
-// Soft wall-clock budget so a run stops gracefully before any platform timeout.
-const MAX_RUN_MS = Number(process.env.MAX_RUN_MS ?? 60000);
+// Soft wall-clock budget per run. Kept well under Netlify's synchronous-function
+// HTTP timeout (~26s) so a manually triggered run always returns cleanly and
+// saves its progress instead of being killed mid-flight.
+const MAX_RUN_MS = Number(process.env.MAX_RUN_MS ?? 16000);
 // How long a lock is considered valid if a run dies without releasing it.
-const LOCK_TTL_MS = Number(process.env.LOCK_TTL_MS ?? 240000);
+const LOCK_TTL_MS = Number(process.env.LOCK_TTL_MS ?? 60000);
 
 function getStateStore() {
   return getStore({ name: STORE_NAME, consistency: "strong" });
@@ -68,7 +70,7 @@ export async function readLock() {
 
 // Best-effort lock to stop overlapping runs (e.g. a manual "Run now" landing on
 // top of the scheduled run). Read-then-write is not perfectly atomic, but the
-// TTL guarantees a crashed run can never wedge the job forever.
+// TTL guarantees a crashed run can never wedge the job for more than LOCK_TTL_MS.
 async function acquireLock() {
   const store = getStateStore();
   const now = Date.now();
@@ -109,9 +111,19 @@ async function doBackfill() {
 
   const previousState = await readBackfillState();
   const startCursor = previousState.cursor ?? null;
+  const startOffset = Number.isInteger(previousState.didOffset)
+    ? previousState.didOffset
+    : 0;
+
+  // `cursor` selects which listRepos page we are on; `didOffset` is how far into
+  // that page we already processed. Together they let a heavy page resume mid-way
+  // on the next run instead of restarting (which previously caused a doom loop on
+  // dense blocks of active accounts).
+  let pageCursor = startCursor;
+  let offset = startOffset;
 
   let page = await listWsocialDidsPage({
-    cursor: startCursor,
+    cursor: pageCursor,
     limit: MAX_DIDS_PER_RUN,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
@@ -119,14 +131,19 @@ async function doBackfill() {
   // If the saved cursor pointed past the end of the repo list, wrap back to the
   // start so the sweep keeps cycling (good for catching new posts over time).
   let wrappedToStart = false;
-  if (page.dids.length === 0 && startCursor) {
+  if (page.dids.length === 0 && pageCursor) {
     wrappedToStart = true;
+    pageCursor = null;
+    offset = 0;
     page = await listWsocialDidsPage({
       cursor: null,
       limit: MAX_DIDS_PER_RUN,
       timeoutMs: REQUEST_TIMEOUT_MS,
     });
   }
+
+  // Defensive: if the page shrank below our saved offset, restart the page.
+  if (offset >= page.dids.length) offset = 0;
 
   const allNewPosts = [];
   const errors = [];
@@ -136,11 +153,14 @@ async function doBackfill() {
   let processedDids = 0;
   let stoppedEarly = false;
 
-  for (const did of page.dids) {
+  let index = offset;
+  for (; index < page.dids.length; index++) {
     if (Date.now() > deadline) {
       stoppedEarly = true;
       break;
     }
+
+    const did = page.dids[index];
 
     try {
       const result = await collectPostsForDid(did, {
@@ -179,15 +199,25 @@ async function doBackfill() {
 
   const saved = await addPosts(allNewPosts);
 
-  // Advance the cursor only when the whole page completed. If we stopped early
-  // we keep the same cursor and reprocess the page next run (safe: dedup by URI).
-  const nextCursor = stoppedEarly ? startCursor : page.cursor ?? null;
+  // Where to resume next run:
+  // - stopped early  -> same page, at the next unprocessed DID
+  // - finished page  -> next page, offset 0
+  let nextCursor;
+  let nextOffset;
+  if (stoppedEarly) {
+    nextCursor = pageCursor;
+    nextOffset = index;
+  } else {
+    nextCursor = page.cursor ?? null;
+    nextOffset = 0;
+  }
   const finishedSweep = !stoppedEarly && !page.cursor;
 
   const finishedAt = new Date();
 
   const state = {
     cursor: nextCursor,
+    didOffset: nextOffset,
     lastRunAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     durationMs: finishedAt.getTime() - startedAt.getTime(),
@@ -195,6 +225,8 @@ async function doBackfill() {
     daysBack: DAYS_BACK,
     repoCursorBefore: startCursor,
     repoCursorAfter: nextCursor,
+    didOffsetBefore: startOffset,
+    didOffsetAfter: nextOffset,
     pageDidCount: page.dids.length,
     processedDids,
     didsWithPosts,
@@ -224,6 +256,8 @@ async function doBackfill() {
     cutoff: state.cutoff,
     repoCursorBefore: startCursor,
     repoCursorAfter: nextCursor,
+    didOffsetBefore: startOffset,
+    didOffsetAfter: nextOffset,
     processedDids,
     didsWithPosts,
     skippedEmptyRepos,
