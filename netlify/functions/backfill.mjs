@@ -23,7 +23,8 @@ export default async function handler(request) {
     const result = await runBackfill();
 
     return json(200, {
-      ok: true,
+      ok: result.ok !== false,
+      skipped: result.skipped ?? false,
       scheduledPayload,
       result,
     });

@@ -9,6 +9,9 @@
     "backfill:test": "node backfill-test.mjs",
     "import:test": "node import-backfill-test.mjs",
     "backfill": "node backfill-recent.mjs",
+    "scrape": "node full-scrape.mjs",
+    "upload": "node upload-to-netlify.mjs",
+    "register": "node register-feed.mjs",
     "index": "node live-indexer.mjs",
     "serve": "node server.mjs"
   },

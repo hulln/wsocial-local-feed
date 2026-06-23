@@ -1,5 +1,5 @@
 import { readPosts } from "../lib/feed-store.mjs";
-import { readBackfillState } from "../lib/wsocial-backfill.mjs";
+import { readBackfillState, readLock } from "../lib/wsocial-backfill.mjs";
 
 const CONFIGURED_SERVICE_DID = process.env.SERVICE_DID ?? null;
 const FEED_OWNER_DID = process.env.FEED_OWNER_DID ?? null;
@@ -107,8 +107,8 @@ export default async function handler(request) {
   }
 
   if (pathname === "/backfill-state.json") {
-    const state = await readBackfillState();
-    return json(200, state);
+    const [state, lock] = await Promise.all([readBackfillState(), readLock()]);
+    return json(200, { ...state, lock });
   }
 
   if (pathname === "/xrpc/app.bsky.feed.describeFeedGenerator") {

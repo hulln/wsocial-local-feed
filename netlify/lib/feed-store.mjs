@@ -2,7 +2,7 @@ import { getStore } from "@netlify/blobs";
 
 const STORE_NAME = "wsocial-feed";
 const POSTS_KEY = "posts";
-const MAX_POSTS = Number(process.env.MAX_POSTS ?? 5000);
+const MAX_POSTS = Number(process.env.MAX_POSTS ?? 10000);
 
 function getPostsStore() {
   return getStore({
