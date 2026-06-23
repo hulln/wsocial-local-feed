@@ -1,0 +1,17 @@
+{
+  "name": "wsocial-local-feed",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "check": "node check-pds.mjs",
+    "live": "node live-wsocial.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}
