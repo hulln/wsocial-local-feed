@@ -6,7 +6,8 @@
     "check": "node check-pds.mjs",
     "live": "node live-wsocial.mjs",
     "live:filtered": "node live-wsocial-filtered.mjs",
-    "backfill:test": "node backfill-test.mjs"
+    "backfill:test": "node backfill-test.mjs",
+    "import:test": "node import-backfill-test.mjs"
   },
   "keywords": [],
   "author": "",
