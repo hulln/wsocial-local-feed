@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "check": "node check-pds.mjs",
-    "live": "node live-wsocial.mjs"
+    "live": "node live-wsocial.mjs",
+    "live:filtered": "node live-wsocial-filtered.mjs"
   },
   "keywords": [],
   "author": "",
