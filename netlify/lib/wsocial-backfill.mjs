@@ -142,10 +142,15 @@ export async function runBackfill() {
       const posts = await getRecentPostsForDid(did, cutoff);
       allNewPosts.push(...posts);
     } catch (error) {
-      errors.push({
-        did,
-        message: error.message,
-      });
+      if (error.message.startsWith("400 ")) {
+        // Empty or unusual repos may not have an app.bsky.feed.post collection.
+        // Treat those as accounts with no posts instead of noisy failures.
+      } else {
+        errors.push({
+          did,
+          message: error.message,
+        });
+      }
     }
 
     if (REQUEST_DELAY_MS > 0) {
