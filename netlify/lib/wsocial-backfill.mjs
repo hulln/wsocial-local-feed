@@ -35,7 +35,8 @@ async function fetchJson(url) {
     });
 
     if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
+      const body = await response.text().catch(() => "");
+      throw new Error(`${response.status} ${response.statusText}: ${body.slice(0, 300)}`);
     }
 
     return response.json();
