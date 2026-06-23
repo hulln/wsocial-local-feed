@@ -5,7 +5,8 @@
   "scripts": {
     "check": "node check-pds.mjs",
     "live": "node live-wsocial.mjs",
-    "live:filtered": "node live-wsocial-filtered.mjs"
+    "live:filtered": "node live-wsocial-filtered.mjs",
+    "backfill:test": "node backfill-test.mjs"
   },
   "keywords": [],
   "author": "",
