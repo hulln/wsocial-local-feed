@@ -88,6 +88,15 @@ async function handleRequest(request, response) {
   }
 
   if (url.pathname === "/xrpc/app.bsky.feed.getFeedSkeleton") {
+    const requestedFeed = url.searchParams.get("feed");
+
+    if (requestedFeed && requestedFeed !== FEED_URI) {
+      return sendJson(response, 400, {
+        error: "InvalidRequest",
+        message: "Feed not found",
+      });
+    }
+
     const posts = await readPosts();
 
     const limit = parseLimit(url.searchParams.get("limit"));
