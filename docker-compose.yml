@@ -1,0 +1,66 @@
+# Run the ATProto post archiver in isolated, resource-capped containers.
+#
+# All processing runs inside containers and is launched via this file, so the job
+# is isolated from the rest of the system and can't run away with resources
+# (see mem_limit / cpus / pids_limit below).
+#
+# --- Setup (once, on the server) ---------------------------------------------
+#   cp .env.example .env
+#   # then edit .env:
+#   #   ARCHIVE_DATA_DIR -> where the JSONL is written. Use /mnt/local-hddpool/...
+#   #                       for the real runs (more space); home dir is fine for tests.
+#   #   ARCHIVE_UID/GID  -> your own ids, so output files aren't owned by root:
+#   #                       run `id -u` and `id -g`.
+#   mkdir -p "$ARCHIVE_DATA_DIR"      # create it yourself so it's owned by you
+#
+# --- Run (detached, survives disconnect, resumable) --------------------------
+#   docker compose up -d eurosky      # start the Eurosky archive in the background
+#   docker compose logs -f eurosky    # watch progress
+#   cat "$ARCHIVE_DATA_DIR"/eurosky-progress.json   # quick status / counts
+#
+#   docker compose up -d wsocial      # same for W Social
+#
+# --- Stop / resume -----------------------------------------------------------
+#   docker compose stop eurosky       # graceful: checkpoints before exiting
+#   docker compose up -d eurosky      # resumes from the checkpoint (skips done repos)
+
+services:
+  eurosky:
+    image: node:20-slim
+    init: true
+    working_dir: /work
+    command: node archive-posts.mjs
+    user: "${ARCHIVE_UID:-1000}:${ARCHIVE_GID:-1000}"
+    environment:
+      NETWORK: eurosky
+      W_PDS: https://eurosky.social
+      CONCURRENCY: "${CONCURRENCY:-10}"
+      OUT_DIR: /data
+    volumes:
+      - ./:/work:ro                              # code, read-only
+      - ${ARCHIVE_DATA_DIR:-./data/archive}:/data # output (JSONL + progress)
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    stop_grace_period: 30s
+    restart: "no"
+
+  wsocial:
+    image: node:20-slim
+    init: true
+    working_dir: /work
+    command: node archive-posts.mjs
+    user: "${ARCHIVE_UID:-1000}:${ARCHIVE_GID:-1000}"
+    environment:
+      NETWORK: wsocial
+      W_PDS: https://pds.wsocial.network
+      CONCURRENCY: "${CONCURRENCY:-10}"
+      OUT_DIR: /data
+    volumes:
+      - ./:/work:ro
+      - ${ARCHIVE_DATA_DIR:-./data/archive}:/data
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    stop_grace_period: 30s
+    restart: "no"

@@ -227,12 +227,16 @@ async function main() {
     processedThisRun: 0,
   };
 
+  // Graceful stop: on Ctrl-C (SIGINT) or `docker compose stop` (SIGTERM), let the
+  // in-flight repos finish, then checkpoint and exit. A second signal forces quit.
   let stopping = false;
-  process.on("SIGINT", () => {
+  const onSignal = (sig) => {
     if (stopping) process.exit(1);
     stopping = true;
-    console.log("\nStopping after in-flight repos... (Ctrl-C again to force quit)");
-  });
+    console.log(`\nReceived ${sig}; finishing in-flight repos then saving progress... (signal again to force quit)`);
+  };
+  process.on("SIGINT", () => onSignal("SIGINT"));
+  process.on("SIGTERM", () => onSignal("SIGTERM"));
 
   let cursor = 0;
   async function worker() {
