@@ -1,4 +1,5 @@
 import { readPosts } from "../lib/feed-store.mjs";
+import { readBackfillState } from "../lib/wsocial-backfill.mjs";
 
 const CONFIGURED_SERVICE_DID = process.env.SERVICE_DID ?? null;
 const FEED_OWNER_DID = process.env.FEED_OWNER_DID ?? null;
@@ -93,6 +94,7 @@ export default async function handler(request) {
         "Endpoints:",
         "- /.well-known/did.json",
         "- /posts.json",
+        "- /backfill-state.json",
         "- /xrpc/app.bsky.feed.describeFeedGenerator",
         "- /xrpc/app.bsky.feed.getFeedSkeleton",
       ].join("\n")
@@ -102,6 +104,11 @@ export default async function handler(request) {
   if (pathname === "/posts.json") {
     const posts = await readPosts();
     return json(200, posts);
+  }
+
+  if (pathname === "/backfill-state.json") {
+    const state = await readBackfillState();
+    return json(200, state);
   }
 
   if (pathname === "/xrpc/app.bsky.feed.describeFeedGenerator") {
@@ -158,6 +165,7 @@ export const config = {
     "/",
     "/.well-known/did.json",
     "/posts.json",
+    "/backfill-state.json",
     "/xrpc/app.bsky.feed.describeFeedGenerator",
     "/xrpc/app.bsky.feed.getFeedSkeleton",
   ],

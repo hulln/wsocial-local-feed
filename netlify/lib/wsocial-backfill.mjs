@@ -44,7 +44,7 @@ async function fetchJson(url) {
   }
 }
 
-async function readState() {
+export async function readBackfillState() {
   const store = getStateStore();
 
   const state = await store.get(STATE_KEY, {
@@ -121,7 +121,7 @@ export async function runBackfill() {
   const startedAt = new Date();
   const cutoff = new Date(startedAt.getTime() - DAYS_BACK * 24 * 60 * 60 * 1000);
 
-  const previousState = await readState();
+  const previousState = await readBackfillState();
 
   let cursor = previousState.cursor ?? null;
   let wrappedToStart = false;
