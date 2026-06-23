@@ -8,7 +8,8 @@
     "live:filtered": "node live-wsocial-filtered.mjs",
     "backfill:test": "node backfill-test.mjs",
     "import:test": "node import-backfill-test.mjs",
-    "backfill": "node backfill-recent.mjs"
+    "backfill": "node backfill-recent.mjs",
+    "index": "node live-indexer.mjs"
   },
   "keywords": [],
   "author": "",
